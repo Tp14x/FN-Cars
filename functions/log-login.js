@@ -1,9 +1,30 @@
+const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
+
 const getCorsHeaders = (origin) => ({
   'Access-Control-Allow-Origin': origin || '*',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json'
 });
+
+async function fetchBin(binId, masterKey) {
+  const res = await fetch(`${JSONBIN_API}/${binId}/latest`, {
+    headers: { 'X-Master-Key': masterKey, 'X-Bin-Meta': 'false' }
+  });
+  if (!res.ok) throw new Error(`Fetch ${binId} failed: ${res.status}`);
+  const data = await res.json();
+  return data.record || data;
+}
+
+async function putBin(binId, masterKey, payload) {
+  const res = await fetch(`${JSONBIN_API}/${binId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': masterKey },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Put ${binId} failed: ${res.status}`);
+  return true;
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -21,25 +42,31 @@ export async function onRequest(context) {
 
   try {
     const loginData = await request.json();
+    const key = env.JSONBIN_MASTER_KEY;
 
-    loginData.serverTimestamp = new Date().toISOString();
-    loginData.ip = request.headers.get('cf-connecting-ip')
-      || request.headers.get('x-forwarded-for')
-      || 'unknown';
+    let logs = [];
+    try {
+      const data = await fetchBin(env.OLD_RECORDS_BIN_ID, key);
+      if (data.logs) logs = data.logs;
+      else if (Array.isArray(data)) logs = data;
+      else logs = [];
+    } catch (_) {}
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: 'Login logged successfully',
-        timestamp: loginData.serverTimestamp
-      }),
-      { status: 200, headers: corsHeaders }
-    );
+    logs.unshift({
+      ...loginData,
+      timestamp: new Date().toISOString()
+    });
+
+    if (logs.length > 1000) logs = logs.slice(0, 1000);
+    await putBin(env.OLD_RECORDS_BIN_ID, key, { logs });
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200, headers: corsHeaders
+    });
 
   } catch (error) {
-    return new Response(
-      JSON.stringify({ success: false, error: 'Failed to log login' }),
-      { status: 500, headers: corsHeaders }
-    );
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      status: 500, headers: corsHeaders
+    });
   }
 }
