@@ -7,6 +7,25 @@ const getCorsHeaders = (origin) => ({
   'Content-Type': 'application/json'
 });
 
+async function fetchBin(binId, masterKey) {
+  const res = await fetch(`${JSONBIN_API}/${binId}/latest`, {
+    headers: { 'X-Master-Key': masterKey, 'X-Bin-Meta': 'false' }
+  });
+  if (!res.ok) throw new Error(`Fetch ${binId} failed: ${res.status}`);
+  const data = await res.json();
+  return data.record || data;
+}
+
+async function putBin(binId, masterKey, payload) {
+  const res = await fetch(`${JSONBIN_API}/${binId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': masterKey },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Put ${binId} failed: ${res.status}`);
+  return true;
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   const corsHeaders = getCorsHeaders(env.ALLOWED_ORIGIN);
@@ -22,64 +41,33 @@ export async function onRequest(context) {
   }
 
   try {
-    const data = await request.json();
+    const record = await request.json();
+    const key = env.JSONBIN_MASTER_KEY;
 
-    let existingRecords = [];
-    const getResponse = await fetch(`${JSONBIN_API}/${env.RECORDS_BIN_ID}/latest`, {
-      headers: { 'X-Master-Key': env.JSONBIN_MASTER_KEY, 'X-Bin-Meta': 'false' }
-    });
-
-    if (getResponse.ok) {
-      const binData = await getResponse.json();
-      if (binData.record && Array.isArray(binData.record.records)) existingRecords = binData.record.records;
-      else if (binData.record && Array.isArray(binData.record)) existingRecords = binData.record;
-      else if (binData.records && Array.isArray(binData.records)) existingRecords = binData.records;
-      else if (Array.isArray(binData)) existingRecords = binData;
-      else if (binData.record && !Array.isArray(binData.record)) existingRecords = [binData.record];
-    }
+    let records = [];
+    try {
+      const data = await fetchBin(env.RECORDS_BIN_ID, key);
+      if (data.records) records = data.records;
+      else if (Array.isArray(data)) records = data;
+      else records = [];
+    } catch (_) {}
 
     const newRecord = {
-      id: Date.now().toString(),
-      timestamp: new Date().toISOString(),
-      userId: data.userId || 'unknown',
-      name: data.mappedName || data.name || data.displayName || 'ไม่ระบุชื่อ',
-      phone: data.phone || '-',
-      car: data.car || '-',
-      mileage: data.mileage || '0',
-      reason: data.reason || '',
-      routeText: data.routeText || '',
-      destinations: data.destinations || [],
-      totalDistance: data.totalDistance || 0,
-      totalTime: data.totalTime || 0,
-      hasPhoto: data.hasPhoto || false,
-      returnStatus: 'pending'
+      ...record,
+      _id: Date.now().toString(),
+      savedAt: new Date().toISOString()
     };
 
-    existingRecords.push(newRecord);
+    records.unshift(newRecord);
+    await putBin(env.RECORDS_BIN_ID, key, { records });
 
-    const putResponse = await fetch(`${JSONBIN_API}/${env.RECORDS_BIN_ID}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': env.JSONBIN_MASTER_KEY
-      },
-      body: JSON.stringify({ records: existingRecords })
+    return new Response(JSON.stringify({ success: true, id: newRecord._id }), {
+      status: 200, headers: corsHeaders
     });
 
-    if (!putResponse.ok) {
-      const errorText = await putResponse.text();
-      throw new Error(`Save failed: ${putResponse.status} - ${errorText}`);
-    }
-
-    return new Response(
-      JSON.stringify({ success: true, id: newRecord.id, total: existingRecords.length }),
-      { status: 200, headers: corsHeaders }
-    );
-
   } catch (error) {
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      { status: 500, headers: corsHeaders }
-    );
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      status: 500, headers: corsHeaders
+    });
   }
 }
