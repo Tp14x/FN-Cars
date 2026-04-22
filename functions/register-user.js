@@ -1,9 +1,30 @@
+const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
+
 const getCorsHeaders = (origin) => ({
   'Access-Control-Allow-Origin': origin || '*',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json'
 });
+
+async function fetchBin(binId, masterKey) {
+  const res = await fetch(`${JSONBIN_API}/${binId}/latest`, {
+    headers: { 'X-Master-Key': masterKey, 'X-Bin-Meta': 'false' }
+  });
+  if (!res.ok) throw new Error(`Fetch ${binId} failed: ${res.status}`);
+  const data = await res.json();
+  return data.record || data;
+}
+
+async function putBin(binId, masterKey, payload) {
+  const res = await fetch(`${JSONBIN_API}/${binId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': masterKey },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Put ${binId} failed: ${res.status}`);
+  return true;
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -20,29 +41,52 @@ export async function onRequest(context) {
   }
 
   try {
-    const userData = await request.json();
+    const body = await request.json();
+    const { userId, displayName, pictureUrl, formData } = body;
 
-    if (!userData.userId || !userData.displayName) {
-      return new Response(
-        JSON.stringify({ error: 'Missing required fields: userId, displayName' }),
-        { status: 400, headers: corsHeaders }
-      );
+    const key = env.JSONBIN_MASTER_KEY;
+    const userMap = await fetchBin(env.USER_BIN_ID, key);
+
+    if (userMap[userId]) {
+      return new Response(JSON.stringify({ success: false, exists: true }), {
+        status: 200, headers: corsHeaders
+      });
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: 'User registered successfully',
-        userId: userData.userId,
-        requiresApproval: true
-      }),
-      { status: 200, headers: corsHeaders }
-    );
+    userMap[userId] = {
+      userId,
+      displayName,
+      pictureUrl,
+      name: formData.fullName,
+      phone: formData.phone,
+      department: formData.department,
+      role: 'pending',
+      status: 'pending',
+      registeredAt: new Date().toISOString()
+    };
+
+    await putBin(env.USER_BIN_ID, key, userMap);
+
+    const requests = await fetchBin(env.REQUEST_BIN_ID, key);
+    const requestsList = Array.isArray(requests) ? requests : Object.values(requests);
+    
+    const newRequest = {
+      id: Date.now(),
+      userData: { userId, displayName, pictureUrl, ...formData },
+      status: 'pending',
+      submittedAt: new Date().toISOString()
+    };
+
+    const updated = [...requestsList, newRequest];
+    await putBin(env.REQUEST_BIN_ID, key, updated);
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200, headers: corsHeaders
+    });
 
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: 'Failed to register user' }),
-      { status: 500, headers: corsHeaders }
-    );
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      status: 500, headers: corsHeaders
+    });
   }
 }
