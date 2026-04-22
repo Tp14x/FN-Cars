@@ -4,9 +4,18 @@
   "description": "ระบบบันทึกการใช้รถพร้อมแผนที่",
   "main": "index.html",
   "scripts": {
-    "build": "echo 'No build step'"
+    "build": "echo 'No build step'",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   },
-  "keywords": ["car", "tracking", "line-liff"],
+  "keywords": [
+    "car",
+    "tracking",
+    "line-liff"
+  ],
   "author": "Your Name",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^4.84.1"
+  }
 }
