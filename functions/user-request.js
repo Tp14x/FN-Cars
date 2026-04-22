@@ -3,7 +3,7 @@ const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
 const getCorsHeaders = (origin) => ({
   'Access-Control-Allow-Origin': origin || '*',
   'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Content-Type': 'application/json'
 });
 
@@ -34,12 +34,29 @@ export async function onRequest(context) {
     return new Response('', { status: 200, headers: corsHeaders });
   }
 
-  if (request.method !== 'POST') {
+  // ✅ รองรับทั้ง GET และ POST
+  if (request.method !== 'GET' && request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405, headers: corsHeaders
     });
   }
 
+  // ✅ ถ้าเป็น GET ให้ดึงรายการคำขอ (สำหรับ admin)
+  if (request.method === 'GET') {
+    try {
+      const requests = await fetchBin(env.REQUEST_BIN_ID, env.JSONBIN_MASTER_KEY);
+      const requestsList = Array.isArray(requests) ? requests : Object.values(requests);
+      return new Response(JSON.stringify(requestsList), {
+        status: 200, headers: corsHeaders
+      });
+    } catch (_) {
+      return new Response(JSON.stringify([]), {
+        status: 200, headers: corsHeaders
+      });
+    }
+  }
+
+  // POST logic (ตรวจสอบหรือส่งคำขอ)
   try {
     const body = await request.json();
     const { action, userId, displayName, pictureUrl, formData } = body;
@@ -64,7 +81,7 @@ export async function onRequest(context) {
     if (action === 'submit') {
       const requests = await fetchBin(env.REQUEST_BIN_ID, key);
       const requestsList = Array.isArray(requests) ? requests : Object.values(requests);
-      
+
       const existing = requestsList.find(r => r.userData && r.userData.userId === userId);
       if (existing) {
         return new Response(JSON.stringify({ duplicate: true }), {
