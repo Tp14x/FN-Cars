@@ -7,6 +7,25 @@ const getCorsHeaders = (origin) => ({
   'Content-Type': 'application/json'
 });
 
+async function fetchBin(binId, masterKey) {
+  const res = await fetch(`${JSONBIN_API}/${binId}/latest`, {
+    headers: { 'X-Master-Key': masterKey, 'X-Bin-Meta': 'false' }
+  });
+  if (!res.ok) throw new Error(`Fetch ${binId} failed: ${res.status}`);
+  const data = await res.json();
+  return data.record || data;
+}
+
+async function putBin(binId, masterKey, payload) {
+  const res = await fetch(`${JSONBIN_API}/${binId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': masterKey },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Put ${binId} failed: ${res.status}`);
+  return true;
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   const corsHeaders = getCorsHeaders(env.ALLOWED_ORIGIN);
@@ -22,25 +41,28 @@ export async function onRequest(context) {
   }
 
   try {
-    const { records } = await request.json();
+    const { id, updates } = await request.json();
+    const key = env.JSONBIN_MASTER_KEY;
 
-    const putResponse = await fetch(`${JSONBIN_API}/${env.RECORDS_BIN_ID}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': env.JSONBIN_MASTER_KEY,
-        'X-Bin-Meta': 'false'
-      },
-      body: JSON.stringify({ records })
-    });
+    let records = [];
+    try {
+      const data = await fetchBin(env.RECORDS_BIN_ID, key);
+      if (data.records) records = data.records;
+      else if (Array.isArray(data)) records = data;
+      else records = [];
+    } catch (_) {}
 
-    if (!putResponse.ok) {
-      const errorText = await putResponse.text();
-      throw new Error(`Update failed: ${putResponse.status} - ${errorText}`);
+    const index = records.findIndex(r => r._id === id || r.id === id);
+    if (index !== -1) {
+      records[index] = { ...records[index], ...updates, updatedAt: new Date().toISOString() };
+      await putBin(env.RECORDS_BIN_ID, key, { records });
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200, headers: corsHeaders
+      });
     }
 
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200, headers: corsHeaders
+    return new Response(JSON.stringify({ success: false, error: 'Record not found' }), {
+      status: 404, headers: corsHeaders
     });
 
   } catch (error) {
