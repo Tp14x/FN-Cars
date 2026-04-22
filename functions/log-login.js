@@ -75,7 +75,7 @@ export async function onRequest(context) {
         await putBin(env.OLD_RECORDS_BIN_ID, key, { logs });
     } catch (_) {}
 
-return new Response(JSON.stringify({ success: true }), { ... });
+    return new Response(JSON.stringify({ success: true }), { ... });
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200, headers: corsHeaders
