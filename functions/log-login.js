@@ -3,7 +3,7 @@ const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
 const getCorsHeaders = (origin) => ({
   'Access-Control-Allow-Origin': origin || '*',
   'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Content-Type': 'application/json'
 });
 
@@ -34,12 +34,25 @@ export async function onRequest(context) {
     return new Response('', { status: 200, headers: corsHeaders });
   }
 
-  if (request.method !== 'POST') {
+  // ✅ รองรับทั้ง GET และ POST
+  if (request.method !== 'GET' && request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405, headers: corsHeaders
     });
   }
 
+  // ✅ ถ้าเป็น GET ให้ตอบกลับสถานะ
+  if (request.method === 'GET') {
+    return new Response(JSON.stringify({ 
+      status: 'ok', 
+      message: 'Log-login function is working',
+      timestamp: new Date().toISOString()
+    }), {
+      status: 200, headers: corsHeaders
+    });
+  }
+
+  // POST logic (บันทึก login log)
   try {
     const loginData = await request.json();
     const key = env.JSONBIN_MASTER_KEY;
