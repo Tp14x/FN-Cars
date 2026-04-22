@@ -71,7 +71,11 @@ export async function onRequest(context) {
     });
 
     if (logs.length > 1000) logs = logs.slice(0, 1000);
-    await putBin(env.OLD_RECORDS_BIN_ID, key, { logs });
+    try {
+        await putBin(env.OLD_RECORDS_BIN_ID, key, { logs });
+    } catch (_) {}
+
+return new Response(JSON.stringify({ success: true }), { ... });
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200, headers: corsHeaders
